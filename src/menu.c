@@ -865,25 +865,38 @@ const t_emu_loader * get_emu_info(const char *ext) {
 
 static void load_patchdb_action(bool confirm) {
   if (confirm) {
+    const unsigned PATCHDB_MAX_SIZE = ROM_OFF_ASSETS_BASE - ROM_OFF_PATCH_DB;
+    const unsigned fs = spop.p.pdb_ld.fs;
+    if (fs > PATCHDB_MAX_SIZE) {
+      spop.alert_msg = msgs[lang_id][MSG_ERR_GENERIC];
+      return;
+    }
+
     FIL fd;
     FRESULT res = f_open(&fd, spop.p.pdb_ld.fn, FA_READ);
     if (res != FR_OK) {
       spop.alert_msg = msgs[lang_id][MSG_ERR_GENERIC];
       return;
-    } else {
-      for (unsigned off = 0; off < spop.p.pdb_ld.fs; off += 1024) {
-        UINT rdbytes;
-        uint32_t tmp[1024/4];
-        if (FR_OK != f_read(&fd, tmp, sizeof(tmp), &rdbytes)) {
-          spop.alert_msg = msgs[lang_id][MSG_ERR_GENERIC];
-          return;
-        }
-
-        set_supercard_mode(MAPPED_SDRAM, true, false);
-        dma_memcpy32(ROM_PATCHDB_U8 + off, tmp, sizeof(tmp)/4);
-        set_supercard_mode(MAPPED_SDRAM, true, true);
-      }
     }
+
+    for (unsigned off = 0; off < fs; off += 1024) {
+      UINT rdbytes;
+      uint32_t tmp[1024/4];
+      memset(tmp, 0, sizeof(tmp));
+      unsigned toread = (fs - off < 1024) ? (fs - off) : 1024;
+      if (FR_OK != f_read(&fd, tmp, toread, &rdbytes) || rdbytes < toread) {
+        f_close(&fd);
+        spop.alert_msg = msgs[lang_id][MSG_ERR_GENERIC];
+        return;
+      }
+
+      unsigned copy_words = toread / 4 + (toread % 4 ? 1 : 0);
+      set_supercard_mode(MAPPED_SDRAM, true, false);
+      dma_memcpy32(ROM_PATCHDB_U8 + off, tmp, copy_words);
+      set_supercard_mode(MAPPED_SDRAM, true, true);
+    }
+
+    f_close(&fd);
     spop.alert_msg = msgs[lang_id][MSG_OK_GENERIC];
   }
 }
