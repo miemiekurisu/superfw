@@ -102,16 +102,19 @@ bool patchmem_lookup(const uint8_t *gamecode, const uint8_t *dbptr, t_patch *pda
 
       pdata->save_mode = (pheader >> 13) & 0x7;    // 3 bits
 
-      const unsigned numops = pdata->wcnt_ops + pdata->save_ops + pdata->irqh_ops + pdata->rtc_ops;
+       const unsigned numops = pdata->wcnt_ops + pdata->save_ops + pdata->irqh_ops + pdata->rtc_ops;
 
-      if ((pheader >> 28) & 0x1) {
-        // Hole/Trailing space information, placed in the last op
-        pdata->hole_addr = (p[numops] >> 16) << 10;   // In KiB chunks
-        pdata->hole_size = (p[numops] & 0xFFFF) << 10;
-      }
+       if (numops > MAX_PATCH_OPS || pdata->save_mode > SaveTypeFlash1024K)
+         return false;
 
-      // Copy patch words
-      memcpy(&pdata->op[0], p, numops * sizeof(uint32_t));
+       if ((pheader >> 28) & 0x1) {
+         // Hole/Trailing space information, placed in the last op
+         pdata->hole_addr = (p[numops] >> 16) << 10;   // In KiB chunks
+         pdata->hole_size = (p[numops] & 0xFFFF) << 10;
+       }
+
+       // Copy patch words
+       memcpy(&pdata->op[0], p, numops * sizeof(uint32_t));
 
       return true;
     }
@@ -142,12 +145,24 @@ static void write_mem32(uint8_t *mem, uint32_t worddata) {
   write_mem8(mem + 3, worddata >> 24);
 }
 
-static void copy_func16(uint8_t *buf, uint32_t baseaddr, unsigned bufsize, const uint16_t *fnptr, unsigned size) {
-  volatile uint16_t *buf16 = (uint16_t*)buf;
-  fnptr = (uint16_t*)(((uintptr_t)fnptr) & ~1U);           // Clear thumb addr bit for the symbol
-  for (unsigned i = 0; i < size; i += 2)
-    if (baseaddr + i < bufsize)
-      *buf16++ = *fnptr++;
+static void copy_func16(uint8_t *buf, uint32_t chunk_base, uint32_t chunk_size,
+                        const uint16_t *fnptr, uint32_t src_base, unsigned size) {
+  uint32_t chunk_end = chunk_base + chunk_size;
+  uint32_t src_end = src_base + size;
+
+  // No overlap
+  if (chunk_end <= src_base || src_end <= chunk_base)
+    return;
+
+  uint32_t start = (src_base > chunk_base) ? src_base : chunk_base;
+  uint32_t end   = (chunk_end < src_end) ? chunk_end : src_end;
+
+  fnptr = (uint16_t*)(((uintptr_t)fnptr) & ~1U);
+  fnptr += (start - src_base) / 2;
+
+  volatile uint16_t *buf16 = (volatile uint16_t*)(buf + (start - chunk_base));
+  for (uint32_t pos = start; pos < end; pos += 2)
+    *buf16++ = *fnptr++;
 }
 
 // Flashing/Eeprom routines flavours:
@@ -251,50 +266,53 @@ void apply_patch_ops(
           write_mem8(&buffer[moff + j - baseaddr], prgs[arg].data[j]);
       break;
     case 0x1:   // Patch Thumb instruction
-      if (moff >= baseaddr && moff < baseaddr + bufsize)
+      if (moff >= baseaddr && (moff - baseaddr) + 2 <= bufsize)
         write_mem16(&buffer[moff - baseaddr], 0x46C0);   // mov r8, r8
       break;
     case 0x2:   // Patch ARM instruction
-      if (moff >= baseaddr && moff < baseaddr + bufsize)
+      if (moff >= baseaddr && (moff - baseaddr) + 4 <= bufsize)
         write_mem32(&buffer[moff - baseaddr], 0xE1A00000);   // mov r0, r0
       break;
     case 0x3:   // Write N bytes to address
       for (unsigned j = 0; j < arg + 1; j++)
         if (moff + j >= baseaddr && moff + j < baseaddr + bufsize)
-          write_mem8(&buffer[moff + j - baseaddr], ops[(j / 4) + 1] >> (j * 8));
+          write_mem8(&buffer[moff + j - baseaddr], (ops[i + 1 + (j / 4)] >> (((j & 3) * 8))) & 0xFF);
       i += (arg + 1 + 3) / 4;
       break;
     case 0x4:   // Write N words to address
-      for (unsigned j = 0; j < arg + 1; j++)
-        if (moff + j >= baseaddr && moff + j < baseaddr + bufsize)
-          write_mem32(&buffer[moff + j * 4 - baseaddr], ops[++i]);
+      for (unsigned j = 0; j < arg + 1; j++) {
+        uint32_t addr = moff + j * 4;
+        if (addr >= baseaddr && addr + 4 <= baseaddr + bufsize)
+          write_mem32(&buffer[addr - baseaddr], ops[i + 1 + j]);
+      }
+      i += arg + 1;
       break;
     case 0x5:   // Patch function with a dummy one
       switch (arg) {
         case 0:
         case 1:
-          if (moff >= baseaddr && moff < baseaddr + bufsize)
+          if (moff >= baseaddr && (moff - baseaddr) + 4 <= bufsize)
             write_mem32(&buffer[moff - baseaddr], arg ? FN_THUMB_RET1 : FN_THUMB_RET0);
           break;
         case 4:
         case 5:
-          if (moff >= baseaddr && moff < baseaddr + bufsize)
+          if (moff >= baseaddr && (moff - baseaddr) + 4 <= bufsize)
             write_mem32(&buffer[moff - baseaddr], (arg == 5) ? FN_ARM_RET1 : FN_ARM_RET0);
-          if (moff + 4 >= baseaddr && moff + 4 < baseaddr + bufsize)
+          if (moff + 4 >= baseaddr && (moff + 4 - baseaddr) + 4 <= bufsize)
             write_mem32(&buffer[moff + 4 - baseaddr], FN_ARM_RETBX);
           break;
       };
       break;
 
     case 0x7:    // RTC handlers
-      copy_func16(&buffer[moff - baseaddr], moff - baseaddr, bufsize, rtc_fncs[arg].ptr, *rtc_fncs[arg].size);
+      copy_func16(buffer, baseaddr, bufsize, rtc_fncs[arg].ptr, moff, *rtc_fncs[arg].size);
       break;
 
     case 0x8:    // EEPROM memory handlers
       if (arg < 2) {
         unsigned fnsz = *psi->sfns->eeprom_fncs[arg].size;
-        copy_func16(&buffer[moff - baseaddr], moff - baseaddr, bufsize, psi->sfns->eeprom_fncs[arg].ptr, fnsz);
-        if (moff + fnsz >= baseaddr && moff + fnsz < baseaddr + bufsize)
+        copy_func16(buffer, baseaddr, bufsize, psi->sfns->eeprom_fncs[arg].ptr, moff, fnsz);
+        if (moff + fnsz >= baseaddr && (moff + fnsz - baseaddr) + 4 <= bufsize)
           write_mem32(&buffer[moff + fnsz - baseaddr], psi->dspayload_addr);
         break;
       }
@@ -303,8 +321,8 @@ void apply_patch_ops(
     case 0x9:    // FLASH memory handlers
       if (arg < 5) {
         unsigned fnsz = *psi->sfns->flash_fncs[arg].size;
-        copy_func16(&buffer[moff - baseaddr], moff - baseaddr, bufsize, psi->sfns->flash_fncs[arg].ptr, fnsz);
-        if (moff + fnsz >= baseaddr && moff + fnsz < baseaddr + bufsize)
+        copy_func16(buffer, baseaddr, bufsize, psi->sfns->flash_fncs[arg].ptr, moff, fnsz);
+        if (moff + fnsz >= baseaddr && (moff + fnsz - baseaddr) + 4 <= bufsize)
           write_mem32(&buffer[moff + fnsz - baseaddr], psi->dspayload_addr);
       }
     };
@@ -383,11 +401,11 @@ void payload_apply_rom(
   uint32_t payload_offset
 ) {
   // Optimize away the copy call if this can't possibly overlap.
-  if (payload_offset > baseaddr + bufsize)
-    return;
-  if (baseaddr > payload_offset + payload_size)
+  uint32_t chunk_end = baseaddr + bufsize;
+  uint32_t src_end   = payload_offset + payload_size;
+  if (src_end <= baseaddr || payload_offset >= chunk_end)
     return;
 
-  copy_func16(&buffer[payload_offset - baseaddr], payload_offset - baseaddr, bufsize, (uint16_t*)payload, payload_size);
+  copy_func16(buffer, baseaddr, bufsize, (uint16_t*)payload, payload_offset, payload_size);
 }
 
