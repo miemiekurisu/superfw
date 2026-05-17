@@ -199,7 +199,8 @@ bool rotate_savefile(const char *templ_fn, unsigned max_backups) {
   // Rename the .tmp.sav file to .sav
   npf_snprintf(dstfn, sizeof(dstfn), "%s.sav", templ_fn);
   npf_snprintf(tmpfn, sizeof(tmpfn), "%s.tmp.sav", templ_fn);
-  f_rename(tmpfn, dstfn);
+  if (f_rename(tmpfn, dstfn) != FR_OK)
+    return false;
 
   // Attempt to remove any overflowing backup file.
   npf_snprintf(tmpfn, sizeof(tmpfn), "%s.%u.sav", templ_fn, max_backups+1);
@@ -257,8 +258,10 @@ unsigned flush_pending_sram() {
     backup_num = parseuint(bkpn);
 
   // Validate the filename! Should start with "/". Let the FatFS check it too.
-  if (savefn[0] != '/')
+  if (savefn[0] != '/') {
+    f_close(&fd);
     return ERR_SAVE_FLUSH_NOSENTINEL;
+  }
 
   // Check if the save file exists and contains the same data.
   {
@@ -266,9 +269,13 @@ unsigned flush_pending_sram() {
     strcpy(tmpfn, savefn);
     strcat(tmpfn, ".sav");
     // Do not write nor rotate backups if the SRAM did not change!
-    if (compare_save_sram(tmpfn))
+    if (compare_save_sram(tmpfn)) {
+      f_close(&fd);
       return 0;
+    }
   }
+
+  f_close(&fd);
 
   // Create the base dir (since in some cases like /SAVES/ it won't exist).
   create_basepath(savefn);
@@ -329,8 +336,10 @@ bool file_is_contiguous(const char *fn, LBA_t *lba) {
     return false;
 
   int iscont = 0;
-  if (FR_OK != test_contiguous_file(&fd, &iscont) || !iscont)
+  if (FR_OK != test_contiguous_file(&fd, &iscont) || !iscont) {
+    f_close(&fd);
     return false;
+  }
 
   if (lba)
     *lba = fd.obj.fs->database + fd.obj.fs->csize * (fd.obj.sclust - 2);
@@ -357,8 +366,10 @@ bool copy_save_contiguous_file(const char *fn, const char *dest, unsigned size) 
   if (fn) {
     // File copy, block by block. Pad to "size" with ones.
     FIL finput;
-    if (FR_OK != f_open(&finput, fn, FA_READ))
+    if (FR_OK != f_open(&finput, fn, FA_READ)) {
+      f_close(&foutput);
       return false;
+    }
 
     for (unsigned i = 0; i < size; i += sizeof(buffer)) {
       UINT rdbytes;
