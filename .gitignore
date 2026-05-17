@@ -7,3 +7,16 @@
 *.gcno
 *.info
 *.i
+apultra/apultra.exe
+apultra/obj/
+upkr/target/
+
+# Generated headers
+src/messages_data.h
+src/menu_messages.h
+
+# Preprocessed linker scripts
+ldscripts/*.ld.i
+
+# Firmware copy for SD card
+superfw-sd.fw
