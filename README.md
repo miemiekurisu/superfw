@@ -174,7 +174,7 @@ Patches and patching (`src/patcher.c`, `src/patchengine.c`):
    the `info1` branch, producing wrong save handler addresses for
    S29AL032D/S29GL032N-type carts.
  - Generated patch op count (`t_patch.op[128]`) had no capacity
-   guard. All 15 op-push sites now break at `PATCH_MAX_OPS`.
+   guard. All 15 op-push sites now break at `MAX_PATCH_OPS`.
  - External patch DB (`patchmem_lookup`) and `.super` deserializer
    (`unserialize_patch`) now validate op counts, `save_mode`, and
    structural bounds.
@@ -217,6 +217,73 @@ require specific WaitCNT/IRQ patches or manual configuration. A
 game-by-game patch database coverage is the governing factor; the
 above bug fixes do not by themselves add new patchability to
 previously broken ROMs.
+
+Upstream sync (2026-10)
+-----------------------
+
+The fork base was moved from v0.20 to upstream v0.21, which brings the
+upper mirror mapping fix, SuperChis UI fixes, new IGM/I/O register
+handling, a reworked NOR save path, NOR games in the recent games list,
+and a slimmer built-in patch database.
+
+The fixes listed above were forward ported on top of v0.21 rather than
+merged wholesale, so none of them got silently dropped on the way.
+Still ours and not present in upstream v0.21: the `copy_func16`
+interval-intersection rewrite, the full width 16/32-bit patch range
+checks, the ROM tail scan bound, the `info1` v1 Flash setup fix, the
+`MAX_PATCH_OPS` guards, and the overflow-safe DirectSave bounds.
+
+Four more defects were found and fixed while porting; they are
+documented in docs/BUG_REPORT.md. `predecode_cheats` walked past the
+code buffer when a multi-code entry declared more pairs than were
+present, the RTC handler index was not validated against the handler
+table, and a failed savegame flush deleted the pending save sentinel
+anyway, losing the only copy of the save. The program payload copy in
+`patchmem_lookup` got an explicit bound for the end of its 512-byte page
+as well; it is unreachable with the current program size and program
+count limits, but it is the assumption those limits are built on.
+
+Building the host tests with MSVC required two portability fixes,
+neither of which changes the generated code (the SD image came out byte
+for byte identical with and without them):
+
+ - `src/compiler.h`: `NOINLINE` and `EXTERNAL` only expand to GCC
+   attributes when the compiler actually is GCC.
+ - `src/cheats.h`: `t_cheathdr_ext` embedded a struct ending in a
+   flexible array member, which standard C forbids. The four header
+   bytes are now mirrored by `t_cheathdr_head`, plus static assertions
+   pinning the layout the block copy relies upon.
+
+Testing
+-------
+
+The regression tests are native programs, no GBA hardware is needed:
+
+    cd tests
+    make host-tests CC=gcc        # build and run 8 test binaries
+    make host-coverage CC=gcc     # gcov summary through cov_report.py
+
+`host-coverage` reports the coverage of the four hardened sources
+(`src/patcher.c`, `src/patchengine.c`, `src/directsave_emu.c` and
+`src/cheats.c`). Every executable line is covered; of the branch
+outcomes 93% are taken, the rest being untaken sides of the bounds
+guards and of the Flash setup info heuristics. The same suite is built
+and run with a second compiler through `python tests/msvc_build.py`,
+which locates `cl.exe` with vswhere.
+
+Firmware images
+---------------
+
+`make BOARD=sd` (also `lite` and `chis`) produces the flashable image as
+`superfw.gba`. Check an image before putting it on a card:
+
+    python tools/verify-fw.py dist/*.fw
+
+This repeats on a PC the checks the in-cart updater performs before it
+dares to erase anything: the `SUPERFW~DAVIDGF` magic, the hardware
+variant, the advertised size, the truncated SHA256 header checksum, the
+GBA cartridge header complement, and the firmware partition budget of
+the flavour.
 
 Licenses
 --------

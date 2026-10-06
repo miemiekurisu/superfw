@@ -20,3 +20,24 @@ ldscripts/*.ld.i
 
 # Firmware copy for SD card
 superfw-sd.fw
+
+# Native host test build artifacts
+tests/*.exe
+tests/*.o
+tests/*.obj
+tests/*.bin
+tests/*.cht
+coverage/
+*.gcov
+tools/dldipatcher
+*.gcov.json.gz
+
+# Local code index caches
+.codegraph/
+
+# Archived firmware builds and kept fallback images
+dist/
+*.fw.old
+
+# MSVC host test build outputs
+tests/msvc-build/
