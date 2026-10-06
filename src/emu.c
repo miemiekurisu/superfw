@@ -23,6 +23,8 @@
 #include "emu.h"
 #include "util.h"
 
+#pragma GCC optimize ("Os")
+
 typedef struct {
   char title[32];
   uint32_t romsize;
@@ -243,4 +245,13 @@ const t_emu_platform emu_platforms[] = {
   {"pce", pce_loaders},
   {NULL, NULL},        // End marker!
 };
+
+const t_emu_loader * get_emu_info(const char *ext) {
+  for (unsigned i = 0; emu_platforms[i].extension; i++)
+    if (!strcasecmp(ext, emu_platforms[i].extension))
+      return emu_platforms[i].loaders;
+
+  return NULL;
+}
+
 

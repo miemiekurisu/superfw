@@ -1,5 +1,5 @@
 
-VERSION_WORD := 0x00000014
+VERSION_WORD := 0x00000015
 VERSION_SLUG_WORD := $(shell git rev-parse --short=8 HEAD || echo FFFFFFFF)
 
 PREFIX		:= arm-none-eabi-
@@ -39,6 +39,16 @@ endif
 
 FWBINFILES=firmware.ewram.gba res/patches.db res/fonts.pack
 
+ifeq ($(ENABLE_DISK_LOGGING),1)
+  PAYLOADFLAGS += -DENABLE_DISK_LOGGING
+endif
+ifeq ($(ENABLE_EMU_LOGGING),1)
+  PAYLOADFLAGS += -DENABLE_EMU_LOGGING
+endif
+ifeq ($(ENABLE_UART_LOGGING),1)
+  PAYLOADFLAGS += -DENABLE_UART_LOGGING
+endif
+
 ifeq ($(COMPRESS_FIRMWARE),1)
   GLOBAL_DEFINES += -DCOMPRESS_FONTS -DCOMPRESS_PATCHES -DCOMPRESS_FIRMWARE
   FWBINFILES := $(addsuffix .comp,$(FWBINFILES))
@@ -60,7 +70,7 @@ endif
 BASEFLAGS=$(GLOBAL_DEFINES) -mcpu=arm7tdmi -mtune=arm7tdmi
 
 CFLAGS=-O2 -ggdb \
-       $(BASEFLAGS) \
+       $(BASEFLAGS) $(PAYLOADFLAGS) \
        -DFW_MAX_SIZE_KB=$(MAXFSIZE) -DFW_FLAVOUR="\"$(FWFLAVOUR)\"" \
        -DSC_FAST_ROM_MIRROR="use_fast_mirror()" \
        -DSD_PREERASE_BLOCKS_WRITE \
@@ -120,6 +130,7 @@ MENUFILES=src/ingame.S \
 
 INFILES=src/gba_ewram_crt0.S \
         src/main.c \
+        src/log.c \
         src/cimpl.c \
         src/settings.c \
         src/loader.c \
@@ -128,6 +139,7 @@ INFILES=src/gba_ewram_crt0.S \
         src/patcher.c \
         src/patches.S \
         src/menu.c \
+        src/recent.c \
         src/cheats.c \
         src/flash.c \
         src/sha256.c \
@@ -190,26 +202,26 @@ src/messages_data.h:	res/messages.py
 src/menu_messages.h:	res/messages.py
 	./res/messages.py h menu > src/menu_messages.h
 
-%.gba.comp:	%.gba.bin apultra/apultra
-	./apultra/apultra $< $@
+firmware.ewram.gba.comp:	firmware.ewram.gba ./upkr.elf
+	./upkr.elf -l $(COMPRESSION_RATIO) $< $@
 
-firmware.ewram.gba.comp:	firmware.ewram.gba ./upkr/target/release/upkr
-	./upkr/target/release/upkr -l $(COMPRESSION_RATIO) $< $@
+%.gba.comp:	%.gba.bin ./upkr.elf
+	./upkr.elf -l $(COMPRESSION_RATIO) $< $@
 
-%.db.comp:	%.db ./upkr/target/release/upkr
-	./upkr/target/release/upkr -l $(COMPRESSION_RATIO) $< $@
+%.db.comp:	%.db ./upkr.elf
+	./upkr.elf -l $(COMPRESSION_RATIO) $< $@
 
-%.pack.comp:	%.pack apultra/apultra
-	./apultra/apultra $< $@
+%.pack.comp:	%.pack apultra.elf
+	./apultra.elf $< $@
 
 %.ld.i:	%.ld
 	cpp $< -o $@
 
-apultra/apultra:
-	make -C apultra
+apultra.elf:	tools/apultra.cc
+	g++ -std=c++20 -O3 $< -o $@
 
-upkr/target/release/upkr:
-	cd upkr/ && cargo build --release
+upkr.elf:	tools/upkr.cc
+	g++ -o $@ $< -O3 -ffast-math
 
 clean:
 	rm -f ldscripts/*.i *.gba *.elf *.payload *.map res/*.comp emu/*.comp *.comp src/menu_messages.h src/messages_data.h

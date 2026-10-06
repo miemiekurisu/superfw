@@ -20,6 +20,8 @@
 
 #include "util.h"
 
+#pragma GCC optimize ("Os")
+
 // Finds a DLDI stub in a buffer and returns an offset (or < 0)
 int dldi_stub_find(const void *buffer, unsigned buf_size) {
   if (buf_size < sizeof(t_dldi_header))

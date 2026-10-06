@@ -129,7 +129,95 @@ int main() {
   timestamp2date(1767225599, &o);
   assert(!memcmp(&o, &d3, sizeof(d3)));
 
-  // TODO test memcpy32 and memmove32
+  // fixdate
+  t_dec_date f1 = {.year = 100, .month = 1, .day = 1, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f1); assert(f1.year == 0);
+  t_dec_date f2 = {.year = -1, .month = 1, .day = 1, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f2); assert(f2.year == 99);
+
+  t_dec_date f3 = {.year = 0, .month = 1, .day = 1, .hour = 24, .min = 0, .sec = 0};
+  fixdate(&f3); assert(f3.hour == 0);
+  t_dec_date f4 = {.year = 0, .month = 1, .day = 1, .hour = -1, .min = 0, .sec = 0};
+  fixdate(&f4); assert(f4.hour == 23);
+
+  t_dec_date f5 = {.year = 0, .month = 1, .day = 1, .hour = 0, .min = 60, .sec = 0};
+  fixdate(&f5); assert(f5.min == 0);
+  t_dec_date f6 = {.year = 0, .month = 1, .day = 1, .hour = 0, .min = -1, .sec = 0};
+  fixdate(&f6); assert(f6.min == 59);
+
+  t_dec_date f7 = {.year = 0, .month = 1, .day = 1, .hour = 0, .min = 0, .sec = 60};
+  fixdate(&f7); assert(f7.sec == 0);
+  t_dec_date f8 = {.year = 0, .month = 1, .day = 1, .hour = 0, .min = 0, .sec = -1};
+  fixdate(&f8); assert(f8.sec == 59);
+
+  t_dec_date f9 = {.year = 0, .month = 0, .day = 1, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f9); assert(f9.month == 12);
+  t_dec_date f10 = {.year = 0, .month = 13, .day = 1, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f10); assert(f10.month == 1);
+
+  // day clamp, leap-year aware (year 0 leap, year 1 not)
+  t_dec_date f11 = {.year = 0, .month = 2, .day = 30, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f11); assert(f11.day == 1);
+  t_dec_date f12 = {.year = 0, .month = 2, .day = 0, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f12); assert(f12.day == 29);
+  t_dec_date f13 = {.year = 1, .month = 2, .day = 0, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f13); assert(f13.day == 28);
+  t_dec_date f14 = {.year = 0, .month = 4, .day = 31, .hour = 0, .min = 0, .sec = 0};
+  fixdate(&f14); assert(f14.day == 1);
+
+  // memcpy32 / memset32 / memmove32
+  // NB: buffers use uint32_t arrays to keep them 4-byte aligned, as required
+  // by the forced 32-bit accesses in these functions (embedded, no byte loop).
+
+  uint32_t mc_src[4] = {1, 2, 3, 4};
+  uint32_t mc_dst[4] = {0, 0, 0, 0};
+  memcpy32(mc_dst, mc_src, 16);
+  assert(!memcmp(mc_dst, mc_src, 16));
+
+  uint32_t mc_dst2[4] = {0xaa, 0xaa, 0xaa, 0xaa};
+  memcpy32(mc_dst2, mc_src, 8);  // partial: only first 2 words
+  assert(mc_dst2[0] == 1 && mc_dst2[1] == 2);
+  assert(mc_dst2[2] == 0xaa && mc_dst2[3] == 0xaa);
+
+  uint32_t ms_dst[4] = {0, 0, 0, 0};
+  memset32(ms_dst, 0xdeadbeef, 16);
+  assert(ms_dst[0] == 0xdeadbeef && ms_dst[1] == 0xdeadbeef &&
+         ms_dst[2] == 0xdeadbeef && ms_dst[3] == 0xdeadbeef);
+
+  uint32_t ms_dst2[4] = {0, 0, 0, 0};
+  memset32(ms_dst2, 0x11111111, 8);  // partial: only first 2 words
+  assert(ms_dst2[0] == 0x11111111 && ms_dst2[1] == 0x11111111);
+  assert(ms_dst2[2] == 0 && ms_dst2[3] == 0);
+
+  // memmove32 forward copy (dst < src, overlapping)
+  uint32_t mv1[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  memmove32(&mv1[0], &mv1[2], 24);  // shift left by 2 words
+  uint32_t mv1_exp[8] = {3, 4, 5, 6, 7, 8, 7, 8};
+  assert(!memcmp(mv1, mv1_exp, sizeof(mv1)));
+
+  // memmove32 backward copy (dst > src, overlapping)
+  uint32_t mv2[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  memmove32(&mv2[2], &mv2[0], 24);  // shift right by 2 words
+  uint32_t mv2_exp[8] = {1, 2, 1, 2, 3, 4, 5, 6};
+  assert(!memcmp(mv2, mv2_exp, sizeof(mv2)));
+
+  // memmove32 same pointer: no-op
+  uint32_t mv3[4] = {1, 2, 3, 4};
+  memmove32(mv3, mv3, 16);
+  uint32_t mv3_exp[4] = {1, 2, 3, 4};
+  assert(!memcmp(mv3, mv3_exp, sizeof(mv3)));
+
+  // memmove32 non-overlapping
+  uint32_t mv4_src[4] = {9, 8, 7, 6};
+  uint32_t mv4_dst[4] = {0, 0, 0, 0};
+  memmove32(mv4_dst, mv4_src, 16);
+  assert(!memcmp(mv4_dst, mv4_src, 16));
+
+  // memmove32 with non-word-multiple count: truncated down to nearest 4
+  uint32_t mv5[4] = {1, 2, 3, 4};
+  memmove32(&mv5[1], &mv5[0], 15);  // count -> 12, i.e. 3 words
+  uint32_t mv5_exp[4] = {1, 1, 2, 3};
+  assert(!memcmp(mv5, mv5_exp, sizeof(mv5)));
 }
 
 

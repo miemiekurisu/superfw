@@ -22,6 +22,8 @@
 
 #include "fatfs/ff.h"
 
+#pragma GCC optimize ("Os")
+
 bool check_file_exists(const char *fn) {
   FILINFO info;
   FRESULT res = f_stat(fn, &info);

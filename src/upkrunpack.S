@@ -11,8 +11,7 @@
 // r4 .. prev_was_literal / decode_length ret
 // r5 .. context index
 // r6 .. decode_length temp
-// r7 .. probs ptr
-// r8-r11 .. decode_bit temp
+// r8-r9 .. decode_bit temp
 // r12 .. decode_length return address
 upkr_unpack:
     push { r0, r3-r12, lr }

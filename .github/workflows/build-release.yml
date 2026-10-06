@@ -31,7 +31,7 @@ jobs:
       - name: Build firmware
         run: |
           make BOARD=${{ matrix.board }} clean
-          make BOARD=${{ matrix.board }} COMPRESSION_RATIO=9
+          make BOARD=${{ matrix.board }} COMPRESSION_RATIO=10
           mv superfw.gba superfw-${{ matrix.board }}.fw
           cp superfw.dldi.payload superfw-${{ matrix.board }}.dldi
       - name: Upload firmware release

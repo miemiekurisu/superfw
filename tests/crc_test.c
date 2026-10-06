@@ -53,7 +53,7 @@ int main() {
   };
 
   for (unsigned i = 0; i < sizeof(testvec)/sizeof(testvec[0]); i++) {
-    uint8_t co[8], co2[8], co3[8], co4[8];
+    uint8_t co[8], co2[8], co3[8], co4[8], co5[8];
     uint8_t idata[512];
     for (unsigned j = 0; j < sizeof(idata); j++)
       idata[j] = testvec[i].pad_value;
@@ -63,15 +63,17 @@ int main() {
     crc16_nibble_512_8bit(idata, co2);
     crc16_nibble_512_nolut(idata, co3);
     crc16_nibble_512_nolut8bit(idata, co4);
+    crc16_nibble_512_nolutw(idata, co5);
     assert(!memcmp(co,  testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co2, testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co3, testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co4, testvec[i].crcout, sizeof(testvec[i].crcout)));
+    assert(!memcmp(co5, testvec[i].crcout, sizeof(testvec[i].crcout)));
   }
 
   // Unaligned buffer
   for (unsigned i = 0; i < sizeof(testvec)/sizeof(testvec[0]); i++) {
-    uint8_t co[8], co2[8], co3[8], co4[8];
+    uint8_t co[8], co2[8], co3[8], co4[8], co5[8];
     uint8_t idata[513];
     for (unsigned j = 0; j < sizeof(idata); j++)
       idata[j] = testvec[i].pad_value;
@@ -81,10 +83,12 @@ int main() {
     crc16_nibble_512_8bit(&idata[1], co2);
     crc16_nibble_512_nolut(&idata[1], co3);
     crc16_nibble_512_nolut8bit(&idata[1], co4);
+    crc16_nibble_512_nolutw(&idata[1], co5);
     assert(!memcmp(co,  testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co2, testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co3, testvec[i].crcout, sizeof(testvec[i].crcout)));
     assert(!memcmp(co4, testvec[i].crcout, sizeof(testvec[i].crcout)));
+    assert(!memcmp(co5, testvec[i].crcout, sizeof(testvec[i].crcout)));
   }
 
   const struct {

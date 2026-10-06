@@ -24,6 +24,8 @@
 #include "util.h"
 #include "fatfs/ff.h"
 
+#pragma GCC optimize ("Os")
+
 // Preprocessing cheats, includes a proper header and pre-formats some payloads.
 bool predecode_cheats(uint32_t *codes, unsigned cnt) {
   for (unsigned i = 0; i < cnt; i++) {
@@ -55,7 +57,7 @@ bool predecode_cheats(uint32_t *codes, unsigned cnt) {
   return true;
 }
 
-bool parse_hex(const char *s, uint32_t *val, unsigned nibcnt) {
+static bool parse_hex(const char *s, uint32_t *val, unsigned nibcnt) {
   unsigned r = 0;
   for (unsigned i = 0; i < nibcnt; i++) {
     if (!s[i])

@@ -33,6 +33,6 @@ typedef struct {
   const t_emu_loader *loaders;         // List of loaders
 } t_emu_platform;
 
-extern const t_emu_platform emu_platforms[];
+const t_emu_loader * get_emu_info(const char *ext);
 
 #endif

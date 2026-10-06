@@ -18,6 +18,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 
@@ -27,8 +28,25 @@ char *superfw_strchr(const char *s, int c);
 char *superfw_strrchr(const char *s, int c);
 char *superfw_strcat(char *dest, const char *src);
 size_t superfw_strlen(const char *s);
+int superfw_memcmp(const void *a, const void *b, size_t n);
+void *superfw_memmove(void *dst, const void *src, size_t n);
+void * superfw_memset(void *s, int c, size_t n);
+
+// Fills both buffers with 0xaa, then sets n bytes at offset off
+#define CHECK_MEMSET(off, val, n)                                 \
+  {                                                               \
+    uint32_t wbuf[16];                                            \
+    unsigned char exp[64];                                        \
+    unsigned char *p = (unsigned char *)wbuf;                     \
+    memset(p, 0xaa, 64);                                          \
+    memset(exp, 0xaa, 64);                                        \
+    memset(exp + (off), (unsigned char)(val), (n));               \
+    assert(superfw_memset(p + (off), (val), (n)) == p + (off));   \
+    assert(memcmp(p, exp, 64) == 0);                              \
+  }
 
 int main() {
+  char buf[64];
   const char *s = "hello world";
   const char *emptystr = "";
   const char *with_null = "abc\0def";
@@ -96,6 +114,104 @@ int main() {
   assert(superfw_strrchr(s, '\0') == s + strlen(s));
   assert(superfw_strrchr(emptystr, '\0') == emptystr);
   assert(superfw_strrchr(emptystr, 'a') == NULL);
-}
 
+  strcpy(buf, "hello");
+  assert(superfw_strcat(buf, " world") == buf);
+  assert(superfw_strcmp(buf, "hello world") == 0);
+
+  strcpy(buf, "");
+  superfw_strcat(buf, "foo");
+  assert(superfw_strcmp(buf, "foo") == 0);
+
+  strcpy(buf, "foo");
+  superfw_strcat(buf, "");
+  assert(superfw_strcmp(buf, "foo") == 0);
+
+  strcpy(buf, "");
+  superfw_strcat(buf, "");
+  assert(superfw_strcmp(buf, "") == 0);
+
+  strcpy(buf, "a");
+  superfw_strcat(buf, "b");
+  superfw_strcat(buf, "c");
+  superfw_strcat(buf, "d");
+  assert(superfw_strcmp(buf, "abcd") == 0);
+
+  strcpy(buf, "abc");
+  superfw_strcat(buf, "def");
+  assert(superfw_strcmp(buf, "abcdef") == 0);
+  assert(superfw_strlen(buf) == 6);
+
+  assert(superfw_memcmp("abc", "xyz", 0) == 0);
+  assert(superfw_memcmp("abc", "abc", 3) == 0);
+  assert(superfw_memcmp("abc", "abd", 2) == 0);
+  assert(superfw_memcmp("abc", "abd", 3) < 0);
+  assert(superfw_memcmp("abd", "abc", 3) > 0);
+  assert(superfw_memcmp("abc", "bbc", 1) < 0);
+  assert(superfw_memcmp("bbc", "abc", 1) > 0);
+  assert(superfw_memcmp("ab", "ba", 2) < 0);
+  assert(superfw_memcmp("a\0b", "a\0c", 3) < 0);
+  assert(superfw_memcmp("a\0b", "a\0b", 3) == 0);
+  assert(superfw_memcmp("\0\0\0", "\0\0\0", 3) == 0);
+  assert(superfw_memcmp("abcde", "abcdf", 4) == 0);
+  assert(superfw_memcmp("abcde", "abcdf", 5) < 0);
+
+  memcpy(buf, "0123456789", 11);
+  assert(superfw_memmove(buf + 16, buf, 11) == buf + 16);
+  assert(memcmp(buf + 16, "0123456789", 11) == 0);
+  memcpy(buf, "0123456789", 11);
+  assert(superfw_memmove(buf, buf + 3, 0) == buf);
+  assert(superfw_memmove(buf + 3, buf, 0) == buf + 3);
+  assert(memcmp(buf, "0123456789", 11) == 0);
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf, buf, 11);
+  assert(memcmp(buf, "0123456789", 11) == 0);
+
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf, buf + 3, 7);
+  assert(memcmp(buf, "3456789789", 11) == 0);
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf + 3, buf, 7);
+  assert(memcmp(buf, "0120123456", 11) == 0);
+
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf, buf + 1, 9);
+  assert(memcmp(buf, "1234567899", 11) == 0);
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf + 1, buf, 9);
+  assert(memcmp(buf, "0012345678", 11) == 0);
+
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf + 5, buf, 5);
+  assert(memcmp(buf, "0123401234", 11) == 0);
+  memcpy(buf, "0123456789", 11);
+  superfw_memmove(buf, buf + 5, 5);
+  assert(memcmp(buf, "5678956789", 11) == 0);
+
+  CHECK_MEMSET(1, 0x55, 0);
+  CHECK_MEMSET(3, 0x55, 0);
+
+  CHECK_MEMSET(0, 0x55, 0);
+  CHECK_MEMSET(0, 0x55, 1);
+  CHECK_MEMSET(0, 0x55, 3);
+  CHECK_MEMSET(0, 0x55, 4);
+  CHECK_MEMSET(0, 0x55, 5);
+  CHECK_MEMSET(0, 0x55, 8);
+  CHECK_MEMSET(0, 0x55, 32);
+
+  CHECK_MEMSET(1, 0x55, 1);
+  CHECK_MEMSET(1, 0x55, 2);
+  CHECK_MEMSET(1, 0x55, 3);
+  CHECK_MEMSET(1, 0x55, 7);
+  CHECK_MEMSET(1, 0x55, 16);
+  CHECK_MEMSET(2, 0x55, 5);
+  CHECK_MEMSET(3, 0x55, 1);
+  CHECK_MEMSET(3, 0x55, 9);
+  CHECK_MEMSET(5, 0x55, 17);
+
+  CHECK_MEMSET(0, 0x00, 16);
+  CHECK_MEMSET(0, 0xff, 16);
+  CHECK_MEMSET(1, 0x1234, 16);
+  CHECK_MEMSET(1, -1, 16);
+}
 

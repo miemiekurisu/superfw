@@ -28,6 +28,8 @@
 #include "dldi_patcher.h"
 #include "fatfs/ff.h"
 
+#pragma GCC optimize ("Os")
+
 // This is used to validate the NDS header and ensure we do not overwrite
 // random places in RAM and cause some funny business.
 

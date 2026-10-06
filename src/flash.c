@@ -19,11 +19,14 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "flash.h"
 #include "common.h"
 #include "util.h"
 #include "sha256.h"
 #include "gbahw.h"
 #include "supercard_driver.h"
+
+#pragma GCC optimize ("Os")
 
 // Supercard internal flash routines
 // Assumes the code runs from IW/EWRAM!
