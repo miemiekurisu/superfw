@@ -26,5 +26,12 @@
   #define IWRAM_CODE
 #endif
 
-#define NOINLINE __attribute__((noinline))
-#define EXTERNAL __attribute__((used, externally_visible))
+// The GBA toolchain is GCC based; other host compilers (MSVC) build the native
+// tests and have their own spellings for these attributes.
+#if defined(__GNUC__)
+  #define NOINLINE __attribute__((noinline))
+  #define EXTERNAL __attribute__((used, externally_visible))
+#else
+  #define NOINLINE
+  #define EXTERNAL
+#endif
