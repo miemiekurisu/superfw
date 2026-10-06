@@ -146,113 +146,113 @@ constraints:
  - Maximum number of files+dirs in a directory: 16384
 
 Bug fixes (2026-05)
---------------------
+-------------------
 
-A batch of confirmed bugs was fixed across the patching, save, and
-loader subsystems. These were previously reachable through specific ROM
-content, SD card state, or malicious input and could cause black screen,
-corrupted saves, or memory corruption.
+A batch of confirmed bugs was fixed across the patching, save and loader
+subsystems. These were reachable through specific ROM content, SD card
+state or malformed input and could cause black screens, corrupted saves
+or memory corruption.
 
-Patches and patching (`src/patcher.c`, `src/patchengine.c`):
+Patches and patching (src/patcher.c, src/patchengine.c):
 
- - COPY\_BYTE and COPY\_WORD patch op decoding (wrong index base,
+ - COPY_BYTE and COPY_WORD patch op decoding (wrong index base,
    undefined shift, partial buffer address mismatch, stream
-   consumption). Partial NOR patch paths were broken for
-   word-aligned writes.
- - 16/32-bit write range checks in partial buffers. A patch op
-   whose starting address was inside the buffer could still write
-   past the end.
- - `copy_func16` cross-chunk copy logic. When a function or
-   payload spanned SDRAM chunk boundaries, the old offset model
-   produced underflowing pointers and wrong source skips. All 6
-   callers (RTC, save handlers, DirectSave payload, IGM trampoline)
-   rewritten to interval-intersection.
- - ROM signature scan lookahead (`rom[i+1]`) at chunk tail — 6
-   sites guarded with remaining-byte count. `match_sig_prefix`
-   callers (18) updated with available-length parameter.
- - v1 Flash setup info handler extraction used `info2` fields in
-   the `info1` branch, producing wrong save handler addresses for
+   consumption). Partial NOR patch paths were broken for word aligned
+   writes.
+ - 16/32-bit write range checks in partial buffers. A patch op whose
+   starting address was inside the buffer could still write past the
+   end.
+ - copy_func16 cross-chunk copy logic. When a function or payload
+   spanned SDRAM chunk boundaries the old offset model produced
+   underflowing pointers and wrong source skips. All 6 callers (RTC,
+   save handlers, DirectSave payload, IGM trampoline) were rewritten to
+   use interval intersection.
+ - ROM signature scan lookahead (rom[i+1]) at the chunk tail, 6 sites
+   guarded with the remaining byte count. The match_sig_prefix callers
+   (18) were updated with an available length parameter.
+ - v1 Flash setup info handler extraction used info2 fields in the
+   info1 branch, producing wrong save handler addresses for
    S29AL032D/S29GL032N-type carts.
- - Generated patch op count (`t_patch.op[128]`) had no capacity
-   guard. All 15 op-push sites now break at `MAX_PATCH_OPS`.
- - External patch DB (`patchmem_lookup`) and `.super` deserializer
-   (`unserialize_patch`) now validate op counts, `save_mode`, and
-   structural bounds.
+ - Generated patch op count (t_patch.op[128]) had no capacity guard.
+   All 15 op-push sites now break at MAX_PATCH_OPS.
+ - External patch DB (patchmem_lookup) and .super deserializer
+   (unserialize_patch) now validate op counts, save_mode and structural
+   bounds.
 
-Save system (`src/directsave_emu.c`, `src/save.c`):
+Save system (src/directsave_emu.c, src/save.c):
 
- - DirectSave EEPROM (`block_num * 8`) and Flash sector
-   (`sectnum * 4096`) boundary checks had off-by-one and integer
-   overflow. Replaced with division-based comparison.
- - `ds_read_flash` `offset + bytecount > msize` guard rearranged
-   to `bytecount > msize - offset` to prevent overflow bypass.
- - `rotate_savefile` now checks the final `.tmp.sav -> .sav`
-   rename return code to prevent silent data loss.
- - File handle leaks fixed in `flush_pending_sram` (3 error
-   paths), `file_is_contiguous` (failure path), and
-   `copy_save_contiguous_file` (input open failure without
-   closing output).
+ - DirectSave EEPROM (block_num * 8) and Flash sector (sectnum * 4096)
+   boundary checks had off by one and integer overflow issues, replaced
+   with division based comparisons.
+ - ds_read_flash "offset + bytecount > msize" guard rearranged into
+   "bytecount > msize - offset" to prevent an overflow bypass.
+ - rotate_savefile now checks the final ".tmp.sav -> .sav" rename
+   return code to prevent silent data loss.
+ - File handle leaks fixed in flush_pending_sram (3 error paths),
+   file_is_contiguous (failure path) and copy_save_contiguous_file
+   (input open failure without closing the output).
 
-Loader and menu (`src/menu.c`, `src/cheats.c`):
+Loader, menu and cheats (src/menu.c, src/cheats.c, src/main.c):
 
- - External patch DB load (`load_patchdb_action`) capped at
-   `PATCHDB_MAX_SIZE`, buffer zero-filled, short-read checked,
-   and file handle closed on all paths.
- - `menu_apply_action` clamps extemu file size to 512 MiB to
-   prevent negative uint32\_t cast.
- - Cheat parser (`parse_cheat_codes`) accepts CRLF line endings
-   and `\t`/`\r` separators, has a capacity guard against buffer
-   overflow, and caps title length at 251 to prevent `uint8_t
-   slen` wrap. `open_read_cheats` closes file handle on all error
-   paths.
+ - External patch DB load (load_patchdb_action) capped at
+   PATCHDB_MAX_SIZE, buffer zero filled, short read checked, and file
+   handle closed on all paths.
+ - menu_apply_action clamps the extemu file size to 512 MiB to prevent
+   a negative uint32_t cast.
+ - Cheat parser (parse_cheat_codes) accepts CRLF line endings and
+   tab/CR separators, has a capacity guard against buffer overflow, and
+   caps the title length at 251 to prevent a uint8_t slen wrap.
+   open_read_cheats closes the file handle on all error paths.
+ - predecode_cheats walked past the code buffer when a multi-code entry
+   declared more pairs than were actually present.
+ - The RTC handler index was not validated against the handler table.
+ - A failed savegame flush deleted the pending save sentinel anyway,
+   losing the only remaining copy of the save.
 
-Known status with Chinese-localized (汉化) ROMs:
+Four more defects were found and fixed while auditing for the v0.21
+port and are documented in docs/BUG_REPORT.md. The program payload copy
+in patchmem_lookup got an explicit bound for the end of its 512-byte
+page as well: it is unreachable with the current program size and
+program count limits, but it is the assumption those limits build upon.
 
-Some Chinese-patched ROMs (typically those retaining the original
-game code and version but replacing text/assets) have been tested
-and load, boot, and save reliably with the patched firmware.
-However, compatibility is not universal — ROMs that significantly
-modify code layout or use non-standard memory regions may still
-require specific WaitCNT/IRQ patches or manual configuration. A
-game-by-game patch database coverage is the governing factor; the
-above bug fixes do not by themselves add new patchability to
-previously broken ROMs.
+Chinese localized ROMs
+----------------------
+
+Some Chinese patched ROMs (typically those retaining the original game
+code and version but replacing text and assets) have been tested and
+load, boot and save reliably with this firmware. Compatibility is not
+universal though: ROMs that significantly modify the code layout or use
+non standard memory regions may still require specific WaitCNT/IRQ
+patches or manual configuration. The game by game patch database
+coverage is the governing factor, the bug fixes above do not by
+themselves make a previously broken ROM patchable.
 
 Upstream sync (2026-10)
 -----------------------
 
-The fork base was moved from v0.20 to upstream v0.21, which brings the
-upper mirror mapping fix, SuperChis UI fixes, new IGM/I/O register
-handling, a reworked NOR save path, NOR games in the recent games list,
-and a slimmer built-in patch database.
+The fork base was updated from v0.20 to upstream v0.21 and the firmware
+now reports v0.21. This brings in the upper mirror mapping fix, the
+SuperChis UI fixes, the new IGM/I/O register handling, the reworked NOR
+save path, NOR games in the recent games list and the slimmer built-in
+patch database.
 
-The fixes listed above were forward ported on top of v0.21 rather than
-merged wholesale, so none of them got silently dropped on the way.
-Still ours and not present in upstream v0.21: the `copy_func16`
-interval-intersection rewrite, the full width 16/32-bit patch range
-checks, the ROM tail scan bound, the `info1` v1 Flash setup fix, the
-`MAX_PATCH_OPS` guards, and the overflow-safe DirectSave bounds.
+The upstream changes came in as a normal branch merge and our fixes were
+forward ported on top of them, instead of replacing one tree with the
+other, so nothing from the previous sections was dropped on the way.
+Still ours and not present in upstream v0.21: the copy_func16 interval
+intersection rewrite, the full width 16/32-bit patch range checks, the
+ROM tail scan bound, the info1 v1 Flash setup fix, the MAX_PATCH_OPS
+guards and the overflow safe DirectSave bounds. Building the host tests
+with MSVC also required two portability fixes, neither of which changes
+the generated code (the SD image came out byte for byte identical with
+and without them):
 
-Four more defects were found and fixed while porting; they are
-documented in docs/BUG_REPORT.md. `predecode_cheats` walked past the
-code buffer when a multi-code entry declared more pairs than were
-present, the RTC handler index was not validated against the handler
-table, and a failed savegame flush deleted the pending save sentinel
-anyway, losing the only copy of the save. The program payload copy in
-`patchmem_lookup` got an explicit bound for the end of its 512-byte page
-as well; it is unreachable with the current program size and program
-count limits, but it is the assumption those limits are built on.
-
-Building the host tests with MSVC required two portability fixes,
-neither of which changes the generated code (the SD image came out byte
-for byte identical with and without them):
-
- - `src/compiler.h`: `NOINLINE` and `EXTERNAL` only expand to GCC
-   attributes when the compiler actually is GCC.
- - `src/cheats.h`: `t_cheathdr_ext` embedded a struct ending in a
-   flexible array member, which standard C forbids. The four header
-   bytes are now mirrored by `t_cheathdr_head`, plus static assertions
-   pinning the layout the block copy relies upon.
+ - compiler.h: NOINLINE and EXTERNAL only expand to the GCC attributes
+   when the compiler actually is GCC.
+ - cheats.h: t_cheathdr_ext embedded a struct ending in a flexible array
+   member, which standard C forbids. The four header bytes are now
+   mirrored by t_cheathdr_head, plus static assertions pinning the
+   layout the block copy relies upon.
 
 Testing
 -------
@@ -263,28 +263,27 @@ The regression tests are native programs, no GBA hardware is needed:
     make host-tests CC=gcc        # build and run 8 test binaries
     make host-coverage CC=gcc     # gcov summary through cov_report.py
 
-`host-coverage` reports the coverage of the four hardened sources
-(`src/patcher.c`, `src/patchengine.c`, `src/directsave_emu.c` and
-`src/cheats.c`). Every executable line is covered; of the branch
-outcomes 93% are taken, the rest being untaken sides of the bounds
-guards and of the Flash setup info heuristics. The same suite is built
-and run with a second compiler through `python tests/msvc_build.py`,
-which locates `cl.exe` with vswhere.
+host-coverage reports the coverage of the four hardened sources
+(src/patcher.c, src/patchengine.c, src/directsave_emu.c and
+src/cheats.c). Every executable line is covered; of the branch outcomes
+93% are taken, the rest being untaken sides of the bounds guards and of
+the Flash setup info heuristics. The same suite is built and run with a
+second compiler using "python tests/msvc_build.py", which locates
+cl.exe with vswhere.
 
 Firmware images
 ---------------
 
-`make BOARD=sd` (also `lite` and `chis`) produces the flashable image as
-`superfw.gba`. Check an image before putting it on a card:
+"make BOARD=sd" (also lite and chis) produces the flashable image as
+superfw.gba. Check an image before putting it on a card:
 
     python tools/verify-fw.py dist/*.fw
 
 This repeats on a PC the checks the in-cart updater performs before it
-dares to erase anything: the `SUPERFW~DAVIDGF` magic, the hardware
+dares to erase anything: the SUPERFW~DAVIDGF magic, the hardware
 variant, the advertised size, the truncated SHA256 header checksum, the
 GBA cartridge header complement, and the firmware partition budget of
 the flavour.
-
 Licenses
 --------
 
