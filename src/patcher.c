@@ -86,6 +86,10 @@ bool patchmem_lookup(const uint8_t *gamecode, const uint8_t *dbptr, t_patch *pda
 
     if (cnt > sizeof(pdata->prgs[pgn].data))
       return false;
+    // The payload must stay inside this 512-byte program page, otherwise the
+    // memcpy below would run past it into the index block area.
+    if (cnt + 1u > (unsigned)(512 - i))
+      return false;
 
     pdata->prgs[pgn].length = cnt;
     memcpy(pdata->prgs[pgn++].data, &pgrpage[i+1], cnt);
@@ -105,19 +109,21 @@ bool patchmem_lookup(const uint8_t *gamecode, const uint8_t *dbptr, t_patch *pda
 
       pdata->save_mode = (pheader >> 13) & 0x7;    // 3 bits
 
-       const unsigned numops = pdata->wcnt_ops + pdata->save_ops + pdata->irqh_ops + pdata->rtc_ops;
+      const unsigned numops = pdata->wcnt_ops + pdata->save_ops + pdata->irqh_ops + pdata->rtc_ops;
 
-       if (numops > MAX_PATCH_OPS || pdata->save_mode > SaveTypeFlash1024K)
-         return false;
+      // Bound the op count before it indexes/copies into the fixed size op
+      // array, and reject save types that cannot be handled.
+      if (numops > MAX_PATCH_OPS || pdata->save_mode > SaveTypeFlash1024K)
+        return false;
 
-       if ((pheader >> 28) & 0x1) {
-         // Hole/Trailing space information, placed in the last op
-         pdata->hole_addr = (p[numops] >> 16) << 10;   // In KiB chunks
-         pdata->hole_size = (p[numops] & 0xFFFF) << 10;
-       }
+      if ((pheader >> 28) & 0x1) {
+        // Hole/Trailing space information, placed in the last op
+        pdata->hole_addr = (p[numops] >> 16) << 10;   // In KiB chunks
+        pdata->hole_size = (p[numops] & 0xFFFF) << 10;
+      }
 
-       // Copy patch words
-       memcpy(&pdata->op[0], p, numops * sizeof(uint32_t));
+      // Copy patch words
+      memcpy(&pdata->op[0], p, numops * sizeof(uint32_t));
 
       return true;
     }
@@ -129,7 +135,7 @@ bool patchmem_lookup(const uint8_t *gamecode, const uint8_t *dbptr, t_patch *pda
 // Write a byte to a buffer ensuring that only 16 bit accesses are performed.
 static void write_mem8(uint8_t *mem, uint8_t bytedata) {
   uintptr_t ptraddr = (uintptr_t)mem;
-  volatile uint16_t *aptr = (uint16_t*)(ptraddr & ~1U);
+  volatile uint16_t *aptr = (uint16_t*)(ptraddr & ~(uintptr_t)1);
   unsigned sha = (ptraddr & 1) ? 8 : 0;
   uint16_t data = *aptr & (~(0xFF << sha));
   data |= (bytedata << sha);
@@ -160,7 +166,7 @@ static void copy_func16(uint8_t *buf, uint32_t chunk_base, uint32_t chunk_size,
   uint32_t start = (src_base > chunk_base) ? src_base : chunk_base;
   uint32_t end   = (chunk_end < src_end) ? chunk_end : src_end;
 
-  fnptr = (uint16_t*)(((uintptr_t)fnptr) & ~1U);
+  fnptr = (uint16_t*)(((uintptr_t)fnptr) & ~(uintptr_t)1);
   fnptr += (start - src_base) / 2;
 
   volatile uint16_t *buf16 = (volatile uint16_t*)(buf + (start - chunk_base));
@@ -308,7 +314,10 @@ void apply_patch_ops(
       break;
 
     case 0x7:    // RTC handlers
-      copy_func16(buffer, baseaddr, bufsize, rtc_fncs[arg].ptr, moff, *rtc_fncs[arg].size);
+      // The index comes from the patch database: bound it, an out-of-range arg
+      // would copy garbage code into the ROM image.
+      if (arg < sizeof(rtc_fncs) / sizeof(rtc_fncs[0]))
+        copy_func16(buffer, baseaddr, bufsize, rtc_fncs[arg].ptr, moff, *rtc_fncs[arg].size);
       break;
 
     case 0x8:    // EEPROM memory handlers

@@ -34,9 +34,16 @@ bool predecode_cheats(uint32_t *codes, unsigned cnt) {
       .value = codes[2*i+1],
       .address = codes[2*i] & 0xFFFFFFF,
     };
-    h.blen = (h.opcode == 4 * 2) ? 16 :
-             (h.opcode == 5 * 2) ? (h.value + 1) * 8 :
-             8;
+    // Some opcodes consume extra addr+value pairs after the header, and the
+    // pair count comes from the (untrusted) cheat file.  Validate that those
+    // pairs are actually present in the buffer, and that the resulting entry
+    // size fits in t_cheat_predec.blen (8 bits), otherwise the loop below
+    // reads/writes well past the end of the codes buffer.
+    unsigned extra = (h.opcode == 4 * 2) ? 1 :
+                     (h.opcode == 5 * 2) ? h.value : 0;
+    if (extra > cnt - i - 1 || (extra + 1) * 8 > 0xFF)
+      return false;
+    h.blen = (extra + 1) * 8;
 
     // Overwrite buffer with the new format
     memcpy(&codes[2*i], &h, sizeof(h));
@@ -45,7 +52,7 @@ bool predecode_cheats(uint32_t *codes, unsigned cnt) {
       i++;                    // Extra addr + value for opc4
     else if (h.opcode == 5 * 2) {
       // Extra buffer. We perform some endianess conversion here.
-      for (unsigned j = 0; j < h.value; j++) {
+      for (unsigned j = 0; j < extra; j++) {
         i++;
         uint32_t addr = codes[2*i];
         uint16_t valu = codes[2*i+1];
@@ -176,9 +183,11 @@ int open_read_cheats(uint8_t *buffer, unsigned buffsize, const char *fn) {
         chdr.h.enabled = 0;
         chdr.h.codelen = 0;
       } else {
-        uint32_t codes[74];
+        // An extra (zeroed) entry is appended as an end-of-payload marker, so
+        // the array needs room for it beyond the parsed pairs.
+        uint32_t codes[2 * (MAX_CHEAT_CODES + 1)];
         memset(codes, 0, sizeof(codes));
-        int numcodes = parse_cheat_codes(tmp, codes, 37);
+        int numcodes = parse_cheat_codes(tmp, codes, MAX_CHEAT_CODES);
         if (numcodes < 0) {
           f_close(&fd);
           return -1;
@@ -188,6 +197,13 @@ int open_read_cheats(uint8_t *buffer, unsigned buffsize, const char *fn) {
           return -1;
         }
 
+        // t_cheathdr.codelen is 8 bits and the menu walks the entries with it:
+        // a too long line would wrap it and make every following entry (up to
+        // and beyond the buffer end) be parsed as garbage.  parse_cheat_codes()
+        // never returns more than MAX_CHEAT_CODES pairs so this holds by
+        // construction; the assertion trips if that cap is ever raised.
+        _Static_assert(8 * (MAX_CHEAT_CODES + 1) <= 0xFF,
+                       "cheat payload must fit in t_cheathdr.codelen");
         chdr.h.codelen = 8 * (numcodes + 1);
 
         {

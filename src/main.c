@@ -109,9 +109,15 @@ void check_pending_saves() {
       display_info_clear();
       display_info_msg("Failed to write savegame to SD!");
       wait_ms(4000);
+
+      // Keep the sentinel file so the save is attempted again on the next
+      // boot. Deleting it here would lose the only copy of the save data.
+      // It can be removed manually from the file browser if desired.
+      WRITE_LOG("Pending save flush failed, keeping sentinel");
+      return;
     }
 
-    // Delete the sentinel file unconditionally.
+    // The save is safely on the SD card (or wasn't needed), drop the sentinel.
     f_unlink(PENDING_SAVE_FILEPATH);
   }
 }
